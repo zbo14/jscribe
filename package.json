@@ -1,8 +1,12 @@
 {
   "name": "jscribe",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Effortlessly send, receive, and validate JSON over streams",
   "main": "index.js",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "engineStrict": true,
   "scripts": {
     "docs": "jsdoc README.md index.js",
     "lint": "eslint *.js test/*",
@@ -10,6 +14,7 @@
   },
   "keywords": [
     "JSON",
+    "ajv",
     "buffers",
     "data-validation",
     "json-schema",
@@ -31,5 +36,17 @@
     "jsdoc": "^3.6.7",
     "mocha": "^9.0.1",
     "nyc": "^15.1.0"
+  },
+  "nyc": {
+    "check-coverage": true,
+    "per-file": true,
+    "lines": 100,
+    "statements": 100,
+    "functions": 100,
+    "branches": 100,
+    "reporter": [
+      "html",
+      "text"
+    ]
   }
 }

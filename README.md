@@ -12,7 +12,7 @@ Requires [Node 14.x](https://nodejs.org/dist/latest-v14.x/) or later.
 
 ## Usage
 
-[Here](./example.js)'s a full example with a TCP server + client.
+[Here](https://github.com/zbo14/jscribe/blob/develop/example.js)'s a full example with a TCP server + client.
 
 **Register stream with callback:**
 
@@ -29,7 +29,7 @@ const opts = {
 }
 
 // called when there's an error or
-// each time a new message is received
+// each time a message is received
 const cb = (err, msg) => { ... }
 
 jscribe(stream, opts, cb)
@@ -78,3 +78,9 @@ Then open `out/index.html` in your browser.
 ## Linting
 
 `npm run lint`
+
+## Contributing
+
+Go for it! You're welcome to [open an issue](https://github.com/zbo14/jscribe/issues/new) or [create a pull request](https://github.com/zbo14/jscribe/compare/develop...).
+
+Make sure linting and tests pass before requesting review on a PR!

@@ -1,5 +1,8 @@
 .DS_Store
+.nvmrc
 .nyc_output
+.tool-versions
 coverage
+example.js
 node_modules
 out
