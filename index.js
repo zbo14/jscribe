@@ -1,22 +1,28 @@
 const { Readable, Writable } = require('stream')
+const Ajv = require('ajv')
 
-/** @module jscribe */
+const ajv = new Ajv()
+const isObjectLiteral = x => x?.constructor?.name === 'Object'
 
 /**
- * Register a readable stream with jscribe.
- * The callback is called when there's an error or a message.
+ * @namespace
+ *
+ * @desc   Register a readable stream with jscribe.
+ *         Callback is called when there's an error or a message received.
  *
  * @param  {stream.Readable} stream
  * @param  {Object}          [opts = {}]
- * @param  {Number}          [opts.maxBufferSize = 0] - in bytes (error in callback if exceeded)
- * @param  {Boolean}         [opts.once = false]      - callback can only be called once
- * @param  {Function}        cb                       - has signature (err, msg)
+ * @param  {Boolean}         [opts.destroyOnError = false] - destroy stream if there's an error
+ * @param  {Number}          [opts.maxBufferSize = 0]      - in bytes (error in callback if exceeded)
+ * @param  {Boolean}         [opts.once = false]           - callback can only be called once
+ * @param  {Object}          [opts.schema]                 - JSON schema for message validation
+ * @param  {Function}        cb                            - has signature `function (err, msg)`
  *
  * @return {stream.Readable}
  */
-const register = (stream, opts, cb) => {
+const jscribe = (stream, opts, cb) => {
   if (!(stream instanceof Readable)) {
-    throw new Error('stream must be a readable')
+    throw new Error('Expected stream to be a readable')
   }
 
   if (typeof opts === 'function') {
@@ -24,11 +30,20 @@ const register = (stream, opts, cb) => {
   }
 
   if (typeof cb !== 'function') {
-    throw new Error('cb must be a function')
+    throw new Error('Expected cb to be a function')
   }
 
-  if (opts?.constructor?.name !== 'Object') {
-    throw new Error('opts must be an object literal')
+  if (!isObjectLiteral(opts)) {
+    throw new Error('Expected opts to be an object literal')
+  }
+
+  const invalidDestroyOnError = (
+    opts.hasOwnProperty('destroyOnError') &&
+    typeof opts.destroyOnError !== 'boolean'
+  )
+
+  if (invalidDestroyOnError) {
+    throw new Error('Expected opts.destroyOnError to be a boolean')
   }
 
   const invalidMaxBufferSize = (
@@ -40,7 +55,7 @@ const register = (stream, opts, cb) => {
   )
 
   if (invalidMaxBufferSize) {
-    throw new Error('opts.maxBufferSize must be a whole number')
+    throw new Error('Expected opts.maxBufferSize to be a whole number')
   }
 
   const invalidOnce = (
@@ -49,11 +64,22 @@ const register = (stream, opts, cb) => {
   )
 
   if (invalidOnce) {
-    throw new Error('opts.once must be a boolean')
+    throw new Error('Expected opts.once to be a boolean')
   }
 
+  const invalidSchema = (
+    opts.hasOwnProperty('schema') &&
+    !isObjectLiteral(opts.schema)
+  )
+
+  if (invalidSchema) {
+    throw new Error('Expected opts.schema to be an object literal')
+  }
+
+  const destroyOnError = opts.destroyOnError || false
   const maxBufferSize = opts.maxBufferSize || 0
   const once = opts.once || false
+  const validate = opts.schema && ajv.compile(opts.schema)
 
   let data = Buffer.alloc(0)
   let len = 0
@@ -63,7 +89,8 @@ const register = (stream, opts, cb) => {
       data = Buffer.concat([data, chunk])
 
       if (maxBufferSize && data.byteLength > maxBufferSize) {
-        cb(new Error(`handleData(): exceeded maxBufferSize (${maxBufferSize / 1e3} KB)`))
+        cb(new Error(`handleData(): Exceeded maxBufferSize (${maxBufferSize / 1e3} KB)`))
+        destroyOnError && stream.destroy()
         return
       }
     }
@@ -82,9 +109,22 @@ const register = (stream, opts, cb) => {
 
       try {
         const msg = JSON.parse(str)
+
+        if (validate) {
+          const valid = validate(msg)
+
+          if (!valid) {
+            const [error] = validate.errors
+            cb(new Error('Message violates schema: ' + JSON.stringify(error, null, 2)))
+            destroyOnError && stream.destroy()
+            return
+          }
+        }
+
         cb(null, msg)
       } catch {
         cb(new Error(`Invalid JSON message: \`${str}\``))
+        destroyOnError && stream.destroy()
       }
     }
   }
@@ -98,28 +138,37 @@ const register = (stream, opts, cb) => {
 }
 
 /**
- * Receive a single message from a readable stream, with an optional timeout.
+ * @func
+ * @desc   Receive a message from a readable stream, with an optional timeout.
  *
  * @param  {stream.Readable} stream
- * @param  {Number}          [timeout = 0] - in milliseconds (0 means no timeout)
+ * @param  {Object}          [opts = {}]
+ * @param  {Number}          [opts.timeout = 0] - in milliseconds (0 means no timeout)
+ * @param  {*}               [opts....]         - other options for jscribe()
  *
- * @return {Promise} resolves msg {*}
+ * @return {Promise}         resolves message {*}
  */
-const receive = (stream, timeout = 0) => {
+jscribe.receive = (stream, opts = {}) => {
   return new Promise((resolve, reject) => {
     if (!(stream instanceof Readable)) {
-      reject(new Error('stream must be a readable'))
+      reject(new Error('Expected stream to be a readable'))
       return
     }
 
+    if (!isObjectLiteral(opts)) {
+      throw new Error('Expected opts to be an object literal')
+    }
+
+    const timeout = opts.timeout || 0
+
     if (!Number.isInteger(timeout) || timeout < 0) {
-      reject(new Error('timeout must be a whole number'))
+      reject(new Error('Expected opts.timeout to be a whole number'))
       return
     }
 
     const cb = (err, msg) => err ? reject(err) : resolve(msg)
 
-    register(stream, cb, true)
+    jscribe(stream, { ...opts, once: true }, cb)
 
     timeout && setTimeout(() => {
       reject(new Error(`receive(): Timed out waiting for message (${timeout} ms)`))
@@ -128,16 +177,18 @@ const receive = (stream, timeout = 0) => {
 }
 
 /**
- * Write a message to a writable stream.
+ * @func
+ * @desc   Write a message to a writable stream.
  *
  * @param  {stream.Writable} stream
  * @param  {*}               msg
  *
- * @return {Boolean} see return value for writable.write()
+ * @return {Boolean}         see return value for stream#writable.write()
+ *
  */
-const send = (stream, msg) => {
+jscribe.send = (stream, msg) => {
   if (!(stream instanceof Writable)) {
-    throw new Error('stream must be a writable')
+    throw new Error('Expected stream to be a writable')
   }
 
   const payload = Buffer.from(JSON.stringify(msg))
@@ -148,8 +199,4 @@ const send = (stream, msg) => {
   return stream.write(Buffer.concat([len, payload]))
 }
 
-module.exports = {
-  register,
-  receive,
-  send
-}
+module.exports = jscribe
