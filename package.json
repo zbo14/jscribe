@@ -1,6 +1,6 @@
 {
   "name": "jscribe",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Effortlessly send, receive, and validate JSON over streams",
   "main": "index.js",
   "engines": {
